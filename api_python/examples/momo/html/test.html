@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <link rel="shortcut icon" href="#">
+    <title>Momo P2P</title>
+  </head>
+  <body>
+    <h3>Momo P2P</h3>
+    <div>
+      <select id="codec">
+        <option value="H264">H264</option>
+        <option value="VP8">VP8</option>
+        <option value="VP9">VP9</option>
+        <option value="AV1">AV1</option>
+      </select>
+      <input type="button" onclick="connect();" value="Connect">
+      <input type="button" onclick="disconnect();" value="Disconnect">
+      <input type="button" onclick="play();" value="Play">
+      <input type="text" id="data_text">
+      <input type="button" onclick="sendDataChannel();" value="Send">
+    </div>
+    <div>
+      <video id="remote_video" autoplay style="border: 3px solid gray;"></video>
+    </div>
+    <h4>pose</h4>
+    <label for="px">px</label>
+    <input type="number" id="px" step="0.01" value="0.44">
+    <label for="py">py</label>
+    <input type="number" id="py" step="0.01" value="0.19">
+    <label for="pz">pz</label>
+    <input type="number" id="pz" step="0.01" value="0.45">
+    <h4>angular</h4>
+    <label for="eux">eux</label>
+    <input type="number" id="eux" step="1" max="180" min="-180" value="90">
+    <label for="euy">euy</label>
+    <input type="number" id="euy" step="1" max="180" min="-180" value="-1">
+    <label for="euz">euz</label>
+    <input type="number" id="euz" step="1" max="180" min="-180" value="150">
+    <h4>gripper</h4>
+    <label for="gpos">gripper</label>
+    <input type="number" id="gpos" step="0.1" max="1.0" min="0.0" value="0">
+    <input type="button" onclick="sendtochannel();" value="SendChannel">
+    <script type='text/javascript' src='./webrtc.js'></script>
+
+
+<script type='text/javascript' >
+      function sendtochannel() {
+        dataChannel.send(new Int8Array([document.getElementById('px').value * 100, document.getElementById('py').value * 100, document.getElementById('pz').value * 100, document.getElementById('eux').value, document.getElementById('euy').value, document.getElementById('euz').value, document.getElementById('gpos').value * 10]));
+      }
+    </script>
+
+  </body>
+</html>
