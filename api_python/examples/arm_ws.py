@@ -24,6 +24,7 @@ from kortex_api.autogen.client_stubs.BaseCyclicClientRpc import BaseCyclicClient
 from kortex_api.autogen.messages import Base_pb2, BaseCyclic_pb2, Common_pb2
 
 
+
 # Maximum allowed waiting time during actions (in seconds)
 TIMEOUT_DURATION = 20
 
