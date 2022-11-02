@@ -135,6 +135,88 @@ class GripperCommandExample:
         print("Going to position {:0.2f}...".format(finger.value))
         self.base.SendGripperCommand(gripper_command)
 
+class YemGripperHID:
+    Lx = 8; Ly = 29; L = (Lx**2 + Ly**2)**0.5
+    def __init__(self):
+        self.last_actAng = [0, 0, 0, 0]
+        import hid
+        self.h = hid.device()
+        self.h.close()
+        while True:
+            try:
+                self.h.open(0x2886, 0x802f)
+            except OSError as e:
+                print("not open. try to open in 1sec")
+                time.sleep(1)
+            else:
+                return
+
+    def kinematic(self, angJ3, angJ2, angJ1):
+        Phi = angJ1 + angJ2+ angJ3
+        L = self.L
+        x = -L * (math.sin(math.radians(angJ1)) + math.sin(math.radians(angJ1) + math.radians(angJ2)))
+        y = L * (math.cos(math.radians(angJ1)) + math.cos(math.radians(angJ1) + math.radians(angJ2)))
+        return x, y, Phi
+
+    def invkinematic(self, x, y, Phi):
+        AB = x*x + y*y
+        L = self.L
+        Theta = math.acos((AB - 2*L*L) / (-2*L*L))
+        indexJ2 = math.degrees(Theta) -180 # degree
+        alpha1 = math.acos((x*x + y*y)/ (2*L*(x*x + y*y)**0.5))
+        alpha = math.atan2(y, x)
+        indexJ1 = math.degrees(alpha1+alpha) - 90
+        indexJ3 = Phi - indexJ2 - indexJ1
+        return indexJ3, indexJ2, indexJ1
+    
+    def send(self, gripFactor, rollFactor = 0, gripForce = 10):
+        try:
+            TargAng =  [10, -10, 5, -450] #indexJ3, indexJ2, IndexJ1, Thumb (4 motors); degree * 10
+            TargAng[3] = (int)(10 * (-45 + 45 * gripFactor + 5 * rollFactor)) #thumb
+            x = -15 + (15+38) * gripFactor + 12 * rollFactor
+            y = 50 + (-50+25) * gripFactor - 3 * rollFactor - gripForce * gripFactor
+            Phi = 12 + (-12-92)  * gripFactor + 20 * rollFactor
+            inv = self.invkinematic(x, y, Phi)
+            TargAng[0] = (int)(10*inv[0])#J3
+            TargAng[1] = (int)(10*inv[1])#J2
+            TargAng[2] = (int)(10*inv[2])#J1
+            dataBytes = [0, 0, 0, 0, 0, 0, 0, 0, 0]#header, TargAng
+            dataBytes[1] = (TargAng[0] >> 8) & 0xff
+            dataBytes[2] = TargAng[0] & 0xff
+            dataBytes[3] = (TargAng[1] >> 8) & 0xff
+            dataBytes[4] = TargAng[1] & 0xff
+            dataBytes[5] = (TargAng[2] >> 8) & 0xff
+            dataBytes[6] = TargAng[2] & 0xff
+            dataBytes[7] = (TargAng[3] >> 8) & 0xff
+            dataBytes[8] = TargAng[3] & 0xff
+            self.h.write(dataBytes)#send target to 4 motors
+            getBytes = self.h.read(8)#get actual angle values of 4 motors
+            actAng = [0, 0, 0, 0] #indexJ3, indexJ2, IndexJ1, Thumb; degree * 10
+            actAng[0] =  np.array((getBytes[0] << 8) + getBytes[1], dtype='int16')
+            actAng[1] =  np.array((getBytes[2] << 8) + getBytes[3], dtype='int16')
+            actAng[2] =  np.array((getBytes[4] << 8) + getBytes[5], dtype='int16')
+            actAng[3] =  np.array((getBytes[6] << 8) + getBytes[7], dtype='int16')
+            #print("actual angle: " , actAng)
+            angJ1 = actAng[2] / 10 #degree
+            angJ2 = actAng[1] / 10
+            angJ3 = actAng[0] / 10
+            kine =  self.kinematic(angJ3, angJ2, angJ1)
+            # print("kinematic: ", kine)
+            #inv = invkinematic(kine[0], kine[1], kine[2])
+            #print(inv)
+        except KeyboardInterrupt:
+            self.h.close()
+            return
+        except Exception as e:
+            print("hid unknown error")
+            self.h.close()
+            try:
+                self.h.open(0x2886, 0x802f)
+            except OSError as e:
+                print("not open. try to open")
+            else:
+                return
+
 
 
 [vx, vy, vz, grip, angular_speed_y, recv_time] = [0, 0, 0, 0, 0, 0]
@@ -150,19 +232,25 @@ def convert(client, server, message):
     vy = -read_array[0] / 120
     vz = read_array[1] / 120
 
-    grip_value = read_array[3] / 10
+    grip = read_array[3] / 100
 
     if len(read_array) > 4:
         angular_speed_y = read_array[4]
 
-    if grip_value > 0.5:
-        grip = 1
-    else:
-        grip = 0
-
 def main():
-    
     global vx, vy, vz, grip, recv_time
+
+    yemGripperHID = YemGripperHID()
+    for cout in range(0,2):
+        for gripFactor in range(10, -1, -1):
+            yemGripperHID.send(gripFactor/10, 0)
+            print(gripFactor)
+            time.sleep(0.2)
+        for gripFactor in range(0, 11, 1):
+            yemGripperHID.send(gripFactor/10, 0)
+            print(gripFactor)
+            time.sleep(0.2)
+    
     # Import the utilities helper module
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     import utilities
@@ -171,44 +259,48 @@ def main():
     args = utilities.parseConnectionArguments()
     
     # Create connection to the device and get the router
-    with utilities.DeviceConnection.createTcpConnection(args) as router:
 
-        # Create required services
-        base = BaseClient(router)
-        base.ClearFaults()
-        time.sleep(1)	
-        base_cyclic = BaseCyclicClient(router)
+    while True:
+        try:
+            with utilities.DeviceConnection.createTcpConnection(args) as router:
+                print("Success connecting to Kinova!")
+                # Create required services
+                base = BaseClient(router)
+                base.ClearFaults()
+                time.sleep(1)	
+                base_cyclic = BaseCyclicClient(router)
 
-        # Example core
-        success = True
+                # Example core
+                success = True
 
-        success &= example_move_to_home_position(base)
-        feedback = base_cyclic.RefreshFeedback()
-        print('World Positoin(m) x {:.2f} y {:.2f} z {:.2f}'.format(feedback.base.tool_pose_x, feedback.base.tool_pose_y, feedback.base.tool_pose_z))
-        print('World Eular Rotation(deg) x {:.2f} y {:.2f} z {:.2f}'.format(feedback.base.tool_pose_theta_x, feedback.base.tool_pose_theta_y, feedback.base.tool_pose_theta_z), end='\n\n')
-        eux = 0.44
-        euy = 0.19
-        euz = 0
+                success &= example_move_to_home_position(base)
+                feedback = base_cyclic.RefreshFeedback()
+                print('World Positoin(m) x {:.2f} y {:.2f} z {:.2f}'.format(feedback.base.tool_pose_x, feedback.base.tool_pose_y, feedback.base.tool_pose_z))
+                print('World Eular Rotation(deg) x {:.2f} y {:.2f} z {:.2f}'.format(feedback.base.tool_pose_theta_x, feedback.base.tool_pose_theta_y, feedback.base.tool_pose_theta_z), end='\n\n')
+                eux = 0.44
+                euy = 0.19
+                euz = 0
 
-        example = GripperCommandExample(base)
-
-        while 1:
-            if time.time() - recv_time < 0.2:
-                stop_count = 0
-                success &= example_twist_command(base, vx, vy, vz, angular_speed_y)
-                print(vx, vy, vz, grip)
-                time.sleep(0.1)
-                # grip
                 example = GripperCommandExample(base)
-                example.ExampleSendGripperCommands(grip)
 
-            else:
-                success &= example_twist_command(base, 0, 0, 0, 0)
-            
-        # You can also refer to the 110-Waypoints examples if you want to execute
-        # a trajectory defined by a series of waypoints in joint space or in Cartesian space
+                while 1:
+                    if time.time() - recv_time < 0.2:
+                        stop_count = 0
+                        success &= example_twist_command(base, vx, vy, vz, angular_speed_y)
+                        print(vx, vy, vz, grip)
+                        time.sleep(0.1)
+                        # grip
+                        example = GripperCommandExample(base)
+                        example.ExampleSendGripperCommands(grip)
+                        yemGripperHID.send(grip, 0)
 
-        return 0 if success else 1
+                    else:
+                        success &= example_twist_command(base, 0, 0, 0, 0)
+                return 0 if success else 1
+        except ConnectionRefusedError as e:
+            print("try connecting to Kinova in 3 sec...")
+            time.sleep(3)
+
 
 def wsserver_run():
     from websocket_server import WebsocketServer
