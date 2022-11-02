@@ -170,7 +170,7 @@ class YemGripperHID:
         indexJ3 = Phi - indexJ2 - indexJ1
         return indexJ3, indexJ2, indexJ1
     
-    def send(self, gripFactor, rollFactor = 0, gripForce = 10):
+    def send(self, gripFactor, rollFactor = 0, gripForce = 20):
         try:
             TargAng =  [10, -10, 5, -450] #indexJ3, indexJ2, IndexJ1, Thumb (4 motors); degree * 10
             TargAng[3] = (int)(10 * (-45 + 45 * gripFactor + 5 * rollFactor)) #thumb
